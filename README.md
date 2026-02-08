@@ -89,6 +89,10 @@ rm ~/.claude-code-remote/runtime.json
 Remove-Item "$env:USERPROFILE\.claude-code-remote\runtime.json"
 ```
 
+## Issues & feedback
+
+Found a bug or have a feature request? [Open an issue](https://github.com/seeknull/claudecode-remote/issues).
+
 ## License
 
 MIT

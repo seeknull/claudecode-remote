@@ -2,7 +2,7 @@
 
 A web interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Run Claude Code on a machine and access it from any browser — on your phone, tablet, or another computer.
 
-![Demo](https://raw.githubusercontent.com/anthropics/claudecode-remote/main/content/demo1.gif)
+![Demo](https://raw.githubusercontent.com/seeknull/claudecode-remote/main/content/demo1.gif)
 
 ## What it does
 

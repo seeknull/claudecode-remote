@@ -1,0 +1,36 @@
+{
+  "name": "@seeknull/claudecode-remote",
+  "version": "0.1.0",
+  "description": "Web interface for Claude Code — access Claude Code from any browser",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["claude", "claude-code", "anthropic", "ai", "remote", "web"],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "claudecode-remote": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "server/dist/",
+    "client/dist/"
+  ],
+  "workspaces": ["server", "client"],
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "npm run build && node server/dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.37",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^10.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

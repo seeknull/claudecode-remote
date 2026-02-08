@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+/client/dist/
+/server/dist/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime / session data
+pids/
+*.pid
+*.pid.lock
+sessions/
+*.session
+
+# Coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Lock files
+yarn.lock
+
+# Legacy config (may contain sensitive data)
+config.json

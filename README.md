@@ -6,17 +6,17 @@ A web interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code
 
 ## What it does
 
-- Chat with Claude about your code projects through a browser
-- Claude can read, edit, and create files in your projects (with permission prompts)
-- View file diffs, git status, and tool activity in real-time
-- Browse and resume sessions started from the CLI or VS Code
-- Multiple sessions, multiple projects, multiple tabs — all supported
-- Password-protected access with JWT authentication
+Discovers all projects and sessions (conversations) from your local Claude Code history and surfaces them in a browser UI.
+
+Two types of sessions:
+
+- **CLI Sessions** — read-only, real-time view of all Claude Code sessions running on your machine (started from CLI or VS Code)
+- **Web Sessions** — fully interactive Claude Code sessions directly in the browser
 
 ## Privacy & security
 
 - **Everything runs locally on your machine.** No data is sent to any third-party server. Your code, sessions, and credentials never leave your device.
-- **No API keys needed in this project.** It uses your existing Claude Code CLI authentication. If `claude` works in your terminal, this works too.
+- **No API keys needed.** It uses your existing Claude Code CLI authentication. If `claude` works in your terminal, this works too.
 - **Password-protected.** Access is gated behind a password you set on first launch. Credentials are stored locally in `~/.claude-code-remote/`.
 
 ## Prerequisites

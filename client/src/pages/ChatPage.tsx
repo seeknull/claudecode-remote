@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore";
 import { useChatStore } from "../stores/chatStore";
+import { usePreferencesStore } from "../stores/preferencesStore";
 import { WsClient } from "../api/ws";
 import { api } from "../api/http";
 import { decodeDir } from "../utils/url";
@@ -208,6 +209,16 @@ export default function ChatPage() {
     wsRef.current?.send({ type: "reload", sessionId });
   };
 
+  const { markRead } = usePreferencesStore();
+
+  // Mark session as read when user is at bottom of messages
+  const handleAtBottom = useCallback(() => {
+    if (!sessionId) return;
+    const msgs = useChatStore.getState().messages;
+    const count = msgs.filter((m) => m.role === "user" || m.role === "assistant").length;
+    if (count > 0) markRead(sessionId, count);
+  }, [sessionId, markRead]);
+
   const handleBack = () => {
     if (projectId) {
       navigate(`/projects/${projectId}`);
@@ -352,7 +363,7 @@ export default function ChatPage() {
 
         {/* Scrollable messages + prompts area */}
         <div className={`flex-1 min-h-0 overflow-y-auto flex flex-col ${!isCliSession ? 'pb-32' : ''}`}>
-          <MessageList messages={messages} isStreaming={isStreaming} />
+          <MessageList messages={messages} isStreaming={isStreaming} onAtBottom={handleAtBottom} />
 
           {/* Permission prompt */}
           {permissionRequest && (

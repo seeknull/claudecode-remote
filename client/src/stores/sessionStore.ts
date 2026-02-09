@@ -17,6 +17,9 @@ export interface SessionInfo {
   messageCount: number;
   waitingOnUser: boolean;
   source: "web" | "cli";
+  starred: boolean;
+  hidden: boolean;
+  hasUnread: boolean;
 }
 
 interface SessionState {

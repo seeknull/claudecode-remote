@@ -7,9 +7,10 @@ import ThinkingBlock from "./ThinkingBlock";
 interface Props {
   messages: ChatMessage[];
   isStreaming: boolean;
+  onAtBottom?: () => void;
 }
 
-export default function MessageList({ messages, isStreaming }: Props) {
+export default function MessageList({ messages, isStreaming, onAtBottom }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -26,10 +27,14 @@ export default function MessageList({ messages, isStreaming }: Props) {
     }
   };
 
+  const onAtBottomRef = useRef(onAtBottom);
+  onAtBottomRef.current = onAtBottom;
+
   // Auto-scroll on new messages
   useEffect(() => {
     if (autoScroll) {
       scrollToBottom();
+      onAtBottomRef.current?.();
     }
   }, [messages, autoScroll]);
 
@@ -43,6 +48,9 @@ export default function MessageList({ messages, isStreaming }: Props) {
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
       setAutoScroll(isAtBottom);
       setShowScrollButton(!isAtBottom);
+      if (isAtBottom) {
+        onAtBottomRef.current?.();
+      }
     };
 
     parent.addEventListener("scroll", handleScroll);

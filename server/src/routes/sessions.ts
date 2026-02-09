@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { sessionManager } from "../session-manager.js";
 import { listCliSessions, discoverDirectories } from "../claude-session-scanner.js";
+import { preferencesManager } from "../preferences-manager.js";
 import { createLogger } from "../logger.js";
 
 const log = createLogger("session");
@@ -18,21 +19,27 @@ export function createSessionsRouter(): Router {
     // No longer require whitelisting — any discovered directory is valid
 
     // Web-created sessions (includes imported CLI sessions)
-    const webSessions = sessionManager.listByDirectory(directory).map((s) => ({
-      id: s.id,
-      label: s.label,
-      directory: s.directory,
-      createdAt: s.createdAt,
-      lastActivity: s.lastActivity,
-      messagePreview: sessionManager.getMessagePreview(s.id),
-      isProcessing: s.isProcessing,
-      messageCount: s.messageBuffer.filter(
+    const webSessions = sessionManager.listByDirectory(directory).map((s) => {
+      const messageCount = s.messageBuffer.filter(
         (e) => e.type === "user_message" || e.type === "assistant_text"
-      ).length,
-      waitingOnUser: sessionManager.isWaitingOnUser(s.id),
-      // Imported CLI sessions have sdkSessionId === id
-      source: (s.sdkSessionId === s.id ? "cli" : "web") as "cli" | "web",
-    }));
+      ).length;
+      return {
+        id: s.id,
+        label: s.label,
+        directory: s.directory,
+        createdAt: s.createdAt,
+        lastActivity: s.lastActivity,
+        messagePreview: sessionManager.getMessagePreview(s.id),
+        isProcessing: s.isProcessing,
+        messageCount,
+        waitingOnUser: sessionManager.isWaitingOnUser(s.id),
+        // Imported CLI sessions have sdkSessionId === id
+        source: (s.sdkSessionId === s.id ? "cli" : "web") as "cli" | "web",
+        starred: preferencesManager.isSessionStarred(s.id),
+        hidden: preferencesManager.isSessionHidden(s.id),
+        hasUnread: messageCount > preferencesManager.getLastSeen(s.id),
+      };
+    });
 
     // CLI/VSCode sessions from ~/.claude/projects/
     const cliSessions = listCliSessions(directory).map((s) => ({
@@ -46,6 +53,9 @@ export function createSessionsRouter(): Router {
       messageCount: s.messageCount,
       waitingOnUser: s.waitingOnUser,
       source: "cli" as const,
+      starred: preferencesManager.isSessionStarred(s.id),
+      hidden: preferencesManager.isSessionHidden(s.id),
+      hasUnread: s.messageCount > preferencesManager.getLastSeen(s.id),
     }));
 
     // Filter out CLI sessions that are already registered as web sessions

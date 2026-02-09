@@ -32,6 +32,7 @@ function SessionCard({
   onDelete,
   starred,
   hidden,
+  hasUnread,
   onToggleStar,
   onToggleHide,
 }: {
@@ -40,6 +41,7 @@ function SessionCard({
   onDelete: (id: string, e: React.MouseEvent) => void;
   starred: boolean;
   hidden: boolean;
+  hasUnread: boolean;
   onToggleStar: () => void;
   onToggleHide: () => void;
 }) {
@@ -75,31 +77,14 @@ function SessionCard({
         to={`/projects/${projectId}/${session.id}`}
         className="block w-full text-left px-4 py-3 min-h-[48px]"
       >
-        {/* Row 1: Source icon + title */}
+        {/* Row 1: Title */}
         <div className="flex items-center gap-2">
-          <div className="flex-shrink-0">
-            {session.source === "cli" ? (
-              <span title="CLI / VS Code session">
-                <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </span>
-            ) : (
-              <span title="Web session">
-                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                </svg>
-              </span>
-            )}
-          </div>
           {(session.isProcessing || session.waitingOnUser) && (
             <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0 ${
               session.waitingOnUser ? "bg-yellow-400" : "bg-accent"
             }`} />
           )}
-          <span className="text-sm font-medium text-gray-200 truncate flex-1 min-w-0">
+          <span className="text-sm font-medium truncate flex-1 min-w-0 text-gray-200">
             {session.label}
           </span>
         </div>
@@ -111,6 +96,21 @@ function SessionCard({
 
         {/* Row 3: Actions + time */}
         <div className="flex items-center gap-1 mt-2">
+          {session.source === "cli" ? (
+            <span title="CLI / VS Code session" className="p-1">
+              <svg className="w-3.5 h-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </span>
+          ) : (
+            <span title="Web session" className="p-1">
+              <svg className="w-3.5 h-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
+            </span>
+          )}
           <button
             onClick={(e) => handleAction(e, onToggleStar)}
             className="p-1 text-gray-500 hover:text-yellow-400 transition-colors"
@@ -148,8 +148,13 @@ function SessionCard({
               </svg>
             </button>
           )}
-          <span className="text-[10px] text-gray-600 whitespace-nowrap ml-auto">
-            {formatDate(session.lastActivity)}
+          <span className={`flex items-center gap-1 ml-auto ${hasUnread ? "animate-pulse" : ""}`}>
+            {hasUnread && (
+              <span className="inline-block w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Unread messages" />
+            )}
+            <span className={`text-[10px] whitespace-nowrap ${hasUnread ? "text-red-400" : "text-gray-600"}`}>
+              {formatDate(session.lastActivity)}
+            </span>
           </span>
           <button
             onClick={toggleExpand}
@@ -226,11 +231,13 @@ export default function SessionsPage() {
   const logout = useAuthStore((s) => s.logout);
   const { sessions, setSessions } = useSessionStore();
   const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const {
+    fetchPreferences,
     toggleHideSession,
     toggleStarSession,
     isSessionHidden,
@@ -239,16 +246,32 @@ export default function SessionsPage() {
 
   const directory = projectId ? decodeDir(projectId) : "";
 
-  useEffect(() => {
+  const loadSessions = (showSpinner = true) => {
     if (!directory) return;
-    setLoading(true);
-    api<SessionInfo[]>(
+    if (showSpinner) setLoading(true);
+    return api<SessionInfo[]>(
       `/sessions?directory=${encodeURIComponent(directory)}`
     )
       .then(setSessions)
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setReloading(false);
+      });
+  };
+
+  useEffect(() => {
+    fetchPreferences();
+  }, []);
+
+  useEffect(() => {
+    loadSessions();
   }, [directory]);
+
+  const handleReload = () => {
+    setReloading(true);
+    loadSessions(false);
+  };
 
   // Close menu on outside click
   useEffect(() => {
@@ -334,6 +357,16 @@ export default function SessionsPage() {
           </button>
         )}
         <button
+          onClick={handleReload}
+          disabled={reloading}
+          className="p-2 text-gray-500 hover:text-gray-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          title="Reload sessions"
+        >
+          <svg className={`w-5 h-5 ${reloading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+        <button
           onClick={createSession}
           className="p-2 bg-accent hover:bg-accent-hover rounded-md text-white transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           title="New session"
@@ -401,6 +434,7 @@ export default function SessionsPage() {
                   onDelete={deleteSession}
                   starred={isSessionStarred(session.id)}
                   hidden={isSessionHidden(session.id)}
+                  hasUnread={session.hasUnread}
                   onToggleStar={() => toggleStarSession(session.id)}
                   onToggleHide={() => toggleHideSession(session.id)}
                 />

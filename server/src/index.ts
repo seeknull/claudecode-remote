@@ -12,6 +12,7 @@ import { createAuthRouter } from "./routes/auth.js";
 import { createDirectoriesRouter } from "./routes/directories.js";
 import { createSessionsRouter } from "./routes/sessions.js";
 import { createGitRouter } from "./routes/git.js";
+import { createPreferencesRouter } from "./routes/preferences.js";
 import { handleWsConnection, initSdk, abortAllQueries } from "./ws/handler.js";
 import { createLogger } from "./logger.js";
 
@@ -61,6 +62,7 @@ app.use("/api/auth", createAuthRouter());
 app.use("/api/directories", authenticateHTTP, createDirectoriesRouter());
 app.use("/api/sessions", authenticateHTTP, createSessionsRouter());
 app.use("/api/git", authenticateHTTP, createGitRouter());
+app.use("/api/preferences", authenticateHTTP, createPreferencesRouter());
 
 // Health check
 app.get("/api/health", (_req, res) => {

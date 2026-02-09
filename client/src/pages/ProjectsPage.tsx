@@ -25,8 +25,7 @@ export default function ProjectsPage() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const {
-    hiddenProjects,
-    starredProjects,
+    fetchPreferences,
     toggleHideProject,
     toggleStarProject,
     isProjectHidden,
@@ -34,6 +33,7 @@ export default function ProjectsPage() {
   } = usePreferencesStore();
 
   useEffect(() => {
+    fetchPreferences();
     api<DirectoryInfo[]>("/directories")
       .then(setDirectories)
       .catch(console.error)

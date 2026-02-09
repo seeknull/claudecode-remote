@@ -31,8 +31,8 @@ export interface DiscoveredDirectory {
  * Decode a Claude projects folder name back to an absolute path.
  * e.g. "-Users-guru-garage-myapp" → "/Users/guru/garage/myapp"
  *
- * The encoding replaces path separators with "-", but this is ambiguous when
- * path segments contain dashes (e.g. "claudecode-remote").
+ * The encoding replaces path separators AND dots with "-", which is ambiguous
+ * when path segments contain dashes or dots (e.g. "claudecode-remote", "talk.edge").
  * We resolve ambiguity by testing which interpretation produces a valid path.
  */
 function decodeFolderName(name: string): string {
@@ -43,13 +43,20 @@ function decodeFolderName(name: string): string {
       return existsSync(current) ? current : null;
     }
 
+    // Try as path separator (/)
     const asSeparator = current + sep + parts[idx];
     const r1 = resolve(idx + 1, asSeparator);
     if (r1) return r1;
 
+    // Try as literal dash (-)
     const asDash = current + "-" + parts[idx];
     const r2 = resolve(idx + 1, asDash);
     if (r2) return r2;
+
+    // Try as dot (.)
+    const asDot = current + "." + parts[idx];
+    const r3 = resolve(idx + 1, asDot);
+    if (r3) return r3;
 
     return null;
   }
@@ -63,9 +70,10 @@ function decodeFolderName(name: string): string {
 
 /**
  * Encode an absolute path to a Claude projects folder name.
+ * Claude CLI replaces path separators AND dots with "-".
  */
 export function encodeDirToFolderName(dir: string): string {
-  return dir.replace(/[\\/]/g, "-");
+  return dir.replace(/[\\/\\.]/g, "-");
 }
 
 /**

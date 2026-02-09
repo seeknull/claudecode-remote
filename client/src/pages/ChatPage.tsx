@@ -12,6 +12,7 @@ import PermissionPrompt from "../components/PermissionPrompt";
 import UserQuestionPrompt from "../components/UserQuestionPrompt";
 import PlanApprovalPrompt from "../components/PlanApprovalPrompt";
 import DiffViewer from "../components/DiffViewer";
+import ExportModal from "../components/ExportModal";
 
 interface SessionMeta {
   id: string;
@@ -48,6 +49,7 @@ export default function ChatPage() {
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [diffModal, setDiffModal] = useState<{ diff: string; fileName?: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   // Directory from URL
   const directory = projectId ? decodeDir(projectId) : sessionMeta?.directory || "";
@@ -265,6 +267,17 @@ export default function ChatPage() {
             </svg>
           </button>
 
+          <button
+            onClick={() => setExportModalOpen(true)}
+            disabled={messages.length === 0}
+            className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center md:min-h-0 md:min-w-0 md:p-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Share session"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            </svg>
+          </button>
+
           <h1 className="text-sm font-medium text-gray-200 flex-1 flex items-center gap-2 min-w-0">
             <span className="truncate">{sessionMeta?.label || "Chat Session"}</span>
             {sessionMeta?.source && (
@@ -399,6 +412,19 @@ export default function ChatPage() {
           diff={diffModal.diff}
           fileName={diffModal.fileName}
           onClose={() => setDiffModal(null)}
+        />
+      )}
+
+      {/* Export modal */}
+      {exportModalOpen && sessionMeta && (
+        <ExportModal
+          sessionId={sessionId!}
+          sessionLabel={sessionMeta.label}
+          directory={sessionMeta.directory}
+          createdAt={sessionMeta.source === 'cli' ? '' : new Date().toISOString()}
+          messages={messages}
+          stats={sessionStats}
+          onClose={() => setExportModalOpen(false)}
         />
       )}
     </div>

@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/http";
 import { useSessionStore, SessionInfo } from "../stores/sessionStore";
 import { useAuthStore } from "../stores/authStore";
+import { usePreferencesStore } from "../stores/preferencesStore";
 import { decodeDir } from "../utils/url";
 
 function collapsePath(p: string): string {
@@ -29,10 +30,18 @@ function SessionCard({
   session,
   projectId,
   onDelete,
+  starred,
+  hidden,
+  onToggleStar,
+  onToggleHide,
 }: {
   session: SessionInfo;
   projectId: string;
   onDelete: (id: string, e: React.MouseEvent) => void;
+  starred: boolean;
+  hidden: boolean;
+  onToggleStar: () => void;
+  onToggleHide: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -40,6 +49,12 @@ function SessionCard({
     e.preventDefault();
     e.stopPropagation();
     setExpanded(!expanded);
+  };
+
+  const handleAction = (e: React.MouseEvent, action: () => void) => {
+    e.preventDefault();
+    e.stopPropagation();
+    action();
   };
 
   const statusLabel = session.waitingOnUser
@@ -55,69 +70,99 @@ function SessionCard({
     : "text-gray-500";
 
   return (
-    <div className="bg-surface-lighter rounded-md border border-gray-700/50 transition-colors group">
+    <div className={`bg-surface-lighter rounded-md border border-gray-700/50 transition-colors ${hidden ? "opacity-60" : ""}`}>
       <Link
         to={`/projects/${projectId}/${session.id}`}
-        className="block w-full text-left p-4 min-h-[48px]"
+        className="block w-full text-left px-4 py-3 min-h-[48px]"
       >
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              {/* Source icon */}
-              {session.source === "cli" ? (
-                <span className="flex-shrink-0" title="CLI / VS Code session">
-                  <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </span>
-              ) : (
-                <span className="flex-shrink-0" title="Web session">
-                  <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                  </svg>
-                </span>
-              )}
-              <span className="text-sm font-medium text-gray-200 truncate">
-                {session.label}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 mt-1 truncate pl-6">
-              {session.messagePreview}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 ml-3 flex-shrink-0">
-            <span className="text-xs text-gray-500">
-              {formatDate(session.lastActivity)}
-            </span>
-            {/* Delete button for web sessions */}
-            {session.source === "web" && (
-              <button
-                onClick={(e) => onDelete(session.id, e)}
-                className="p-1.5 text-gray-600 hover:text-red-400 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-                title="Delete session"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        {/* Row 1: Source icon + title */}
+        <div className="flex items-center gap-2">
+          <div className="flex-shrink-0">
+            {session.source === "cli" ? (
+              <span title="CLI / VS Code session">
+                <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-              </button>
+              </span>
+            ) : (
+              <span title="Web session">
+                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                </svg>
+              </span>
             )}
-            {/* Expand button */}
+          </div>
+          {(session.isProcessing || session.waitingOnUser) && (
+            <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0 ${
+              session.waitingOnUser ? "bg-yellow-400" : "bg-accent"
+            }`} />
+          )}
+          <span className="text-sm font-medium text-gray-200 truncate flex-1 min-w-0">
+            {session.label}
+          </span>
+        </div>
+
+        {/* Row 2: Description / message preview */}
+        <p className={`text-xs text-gray-500 mt-1.5 ${expanded ? "line-clamp-3" : "line-clamp-2"}`}>
+          {session.messagePreview}
+        </p>
+
+        {/* Row 3: Actions + time */}
+        <div className="flex items-center gap-1 mt-2">
+          <button
+            onClick={(e) => handleAction(e, onToggleStar)}
+            className="p-1 text-gray-500 hover:text-yellow-400 transition-colors"
+            title={starred ? "Unstar" : "Star"}
+          >
+            <svg className="w-3.5 h-3.5" fill={starred ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => handleAction(e, onToggleHide)}
+            className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            title={hidden ? "Unhide" : "Hide"}
+          >
+            {hidden ? (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            )}
+          </button>
+          {session.source === "web" && (
             <button
-              onClick={toggleExpand}
-              className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-              title={expanded ? "Collapse" : "Details"}
+              onClick={(e) => onDelete(session.id, e)}
+              className="p-1 text-gray-600 hover:text-red-400 transition-colors"
+              title="Delete session"
             >
-              <svg
-                className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
-          </div>
+          )}
+          <span className="text-[10px] text-gray-600 whitespace-nowrap ml-auto">
+            {formatDate(session.lastActivity)}
+          </span>
+          <button
+            onClick={toggleExpand}
+            className="p-1.5 -mr-1.5 text-gray-600 hover:text-gray-300 transition-colors"
+            title={expanded ? "Collapse" : "Details"}
+          >
+            <svg
+              className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
         </div>
       </Link>
 
@@ -149,6 +194,11 @@ function SessionCard({
               <span className="text-gray-600">Created</span>
               <p className="text-gray-300">{formatDate(session.createdAt)}</p>
             </div>
+            {/* Full message preview in expanded view */}
+            <div className="col-span-2 mt-1">
+              <span className="text-gray-600">Last message</span>
+              <p className="text-gray-400 mt-0.5 line-clamp-2">{session.messagePreview || "—"}</p>
+            </div>
           </div>
           {session.source === "web" && (
             <div className="mt-3 pt-2 border-t border-gray-700/30">
@@ -177,7 +227,15 @@ export default function SessionsPage() {
   const { sessions, setSessions } = useSessionStore();
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const {
+    toggleHideSession,
+    toggleStarSession,
+    isSessionHidden,
+    isSessionStarred,
+  } = usePreferencesStore();
 
   const directory = projectId ? decodeDir(projectId) : "";
 
@@ -203,6 +261,21 @@ export default function SessionsPage() {
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [menuOpen]);
+
+  // Sort: starred first, then by lastActivity (newest first)
+  const sortedSessions = [...sessions].sort((a, b) => {
+    const aStarred = isSessionStarred(a.id);
+    const bStarred = isSessionStarred(b.id);
+    if (aStarred && !bStarred) return -1;
+    if (!aStarred && bStarred) return 1;
+    return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime();
+  });
+
+  const visibleSessions = showHidden
+    ? sortedSessions
+    : sortedSessions.filter((s) => !isSessionHidden(s.id));
+
+  const hiddenCount = sessions.filter((s) => isSessionHidden(s.id)).length;
 
   const createSession = async () => {
     if (!directory) return;
@@ -247,6 +320,19 @@ export default function SessionsPage() {
           </h1>
           <p className="text-xs text-gray-500 truncate">{collapsePath(directory)}</p>
         </div>
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => setShowHidden(!showHidden)}
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors min-h-[32px] ${
+              showHidden
+                ? "bg-accent/20 text-accent"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+            title={showHidden ? "Hide hidden sessions" : "Show hidden sessions"}
+          >
+            {showHidden ? `Hide ${hiddenCount} hidden` : `${hiddenCount} hidden`}
+          </button>
+        )}
         <button
           onClick={createSession}
           className="p-2 bg-accent hover:bg-accent-hover rounded-md text-white transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -296,21 +382,27 @@ export default function SessionsPage() {
                 />
               ))}
             </div>
-          ) : sessions.length === 0 ? (
+          ) : visibleSessions.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <p>No sessions yet</p>
               <p className="text-sm mt-1">
-                Create a new session to start chatting
+                {hiddenCount > 0
+                  ? "All sessions are hidden. Click the hidden button above to show them."
+                  : "Create a new session to start chatting"}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {sessions.map((session) => (
+              {visibleSessions.map((session) => (
                 <SessionCard
                   key={session.id}
                   session={session}
                   projectId={projectId!}
                   onDelete={deleteSession}
+                  starred={isSessionStarred(session.id)}
+                  hidden={isSessionHidden(session.id)}
+                  onToggleStar={() => toggleStarSession(session.id)}
+                  onToggleHide={() => toggleHideSession(session.id)}
                 />
               ))}
             </div>

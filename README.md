@@ -96,3 +96,7 @@ Found a bug or have a feature request? [Open an issue](https://github.com/seeknu
 ## License
 
 MIT
+
+---
+
+Part of [seek:null](https://seeknull.com) — things built to scratch an itch.

@@ -340,7 +340,7 @@ async function runQuery(
       ? settings.model
       : undefined;
 
-  const usableImages = (images ?? []).filter(
+  const usableImages = (Array.isArray(images) ? images : []).filter(
     (img) => typeof img?.data === "string" && isImageMediaType(img.mimeType)
   );
   const hasImages = usableImages.length > 0;
@@ -679,10 +679,10 @@ export function handleWsConnection(ws: WebSocket) {
       }
 
       case "chat": {
-        if (!msg.sessionId || !msg.message) {
+        if (!msg.sessionId || typeof msg.message !== "string" || !msg.message) {
           log.warn("Chat message missing required fields", {
             hasSessionId: !!msg.sessionId,
-            hasMessage: !!msg.message,
+            hasMessage: typeof msg.message === "string" && !!msg.message,
           });
           ws.send(
             JSON.stringify({
@@ -705,7 +705,10 @@ export function handleWsConnection(ws: WebSocket) {
         }
 
         addClient(msg.sessionId, ws);
-        runQuery(msg.sessionId, msg.message, msg.settings || {}, msg.images);
+        // Log rather than crash the server if something fails before the run starts
+        runQuery(msg.sessionId, msg.message, msg.settings || {}, msg.images).catch((err) => {
+          log.error(`Could not run the message: ${(err as Error).message}`, { sessionId: msg.sessionId });
+        });
         break;
       }
 

@@ -1,9 +1,18 @@
 {
   "name": "@seeknull/claudecode-remote",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Web interface for Claude Code — access Claude Code from any browser",
   "type": "module",
   "license": "MIT",
+  "author": "seek:null (https://seeknull.com)",
+  "homepage": "https://seeknull.com/claudecode-remote",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seeknull/claudecode-remote.git"
+  },
+  "bugs": {
+    "url": "https://github.com/seeknull/claudecode-remote/issues"
+  },
   "keywords": [
     "claude",
     "claude-code",
@@ -13,7 +22,7 @@
     "web"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "bin": {
     "claudecode-remote": "bin/cli.js"

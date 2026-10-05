@@ -92,6 +92,20 @@ export default function MarkdownRenderer({ content }: Props) {
             </a>
           );
         },
+        // Show markdown images as links: an <img> would make the browser fetch
+        // from whatever host the text names, without anyone clicking.
+        img({ src, alt }) {
+          return (
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-claude-blue hover:underline"
+            >
+              Image: {alt || src}
+            </a>
+          );
+        },
         h1({ children }) {
           return (
             <h1 className="text-xl font-bold mb-2 mt-4 first:mt-0">

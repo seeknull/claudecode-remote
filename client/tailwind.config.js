@@ -20,7 +20,8 @@ export default {
         },
       },
       fontFamily: {
-        mono: ['"JetBrains Mono"', '"Fira Code"', "monospace"],
+        // "JetBrains Mono Variable" is the bundled @fontsource-variable font
+        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', '"Fira Code"', "monospace"],
       },
     },
   },

@@ -8,12 +8,25 @@ const log = createLogger("prefs");
 const STORAGE_DIR = join(homedir(), ".claude-code-remote");
 const PREFS_FILE = join(STORAGE_DIR, "preferences.json");
 
+/** Permission modes the web UI offers, in the order it lists them. */
+export const PERMISSION_MODES = ["default", "plan", "bypassPermissions"] as const;
+export type WebPermissionMode = (typeof PERMISSION_MODES)[number];
+
+/** Tools ask for approval in the browser until the user picks another mode. */
+export const DEFAULT_PERMISSION_MODE: WebPermissionMode = "default";
+
+export function isPermissionMode(value: unknown): value is WebPermissionMode {
+  return typeof value === "string" && (PERMISSION_MODES as readonly string[]).includes(value);
+}
+
 interface Preferences {
   starredSessions: string[];
   hiddenSessions: string[];
   starredProjects: string[];
   hiddenProjects: string[];
   lastSeenMessageCount: Record<string, number>;
+  /** Permission mode used for web-session messages; chosen in the chat sidebar. */
+  permissionMode: WebPermissionMode;
 }
 
 function emptyPrefs(): Preferences {
@@ -23,6 +36,7 @@ function emptyPrefs(): Preferences {
     starredProjects: [],
     hiddenProjects: [],
     lastSeenMessageCount: {},
+    permissionMode: DEFAULT_PERMISSION_MODE,
   };
 }
 
@@ -117,6 +131,17 @@ class PreferencesManager {
     return this.prefs.lastSeenMessageCount[sessionId] ?? 0;
   }
 
+  // --- Permission mode ---
+
+  getPermissionMode(): WebPermissionMode {
+    return this.prefs.permissionMode;
+  }
+
+  setPermissionMode(mode: WebPermissionMode) {
+    this.prefs.permissionMode = mode;
+    this.saveToDisk();
+  }
+
   // --- Persistence ---
 
   private saveToDisk() {
@@ -135,6 +160,10 @@ class PreferencesManager {
         ...emptyPrefs(),
         ...parsed,
       };
+      // Files written before 0.3.0 have no permissionMode; an unknown value is treated the same way.
+      if (!isPermissionMode(this.prefs.permissionMode)) {
+        this.prefs.permissionMode = DEFAULT_PERMISSION_MODE;
+      }
       log.info("Loaded preferences from disk");
     } catch (err) {
       log.warn("Failed to load preferences", { error: (err as Error).message });

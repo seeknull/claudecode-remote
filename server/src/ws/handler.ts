@@ -1,12 +1,36 @@
 import { WebSocket } from "ws";
 import { v4 as uuidv4 } from "uuid";
+import type {
+  CanUseTool,
+  Options,
+  PermissionResult,
+  PermissionUpdate,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { sessionManager, WsEvent } from "../session-manager.js";
+import { preferencesManager, isPermissionMode, WebPermissionMode } from "../preferences-manager.js";
 
 import { createLogger } from "../logger.js";
 import { parseCliSessionHistory, listCliSessions, discoverDirectories } from "../claude-session-scanner.js";
 import { startWatching, stopWatching, isWatching, setWatcherBroadcast, stopAllWatchers } from "../jsonl-watcher.js";
 
 const log = createLogger("ws");
+
+/**
+ * Something Claude Code is waiting on the browser for: a tool approval, an
+ * AskUserQuestion, or a plan approval. `resolve` answers the SDK's canUseTool
+ * callback.
+ */
+interface PendingRequest {
+  sessionId: string;
+  /** The event sent to the browser; sent again when a browser joins the session. */
+  event: WsEvent;
+  /** The tool input Claude Code asked about. */
+  input: Record<string, unknown>;
+  /** Permission updates applied when the request is approved (plan approval only). */
+  onApprove?: PermissionUpdate[];
+  resolve: (result: PermissionResult) => void;
+}
 
 // Track connected clients per session
 const sessionClients = new Map<string, Set<WebSocket>>();
@@ -15,10 +39,7 @@ const activeAborts = new Map<string, AbortController>();
 // Track active query promises per session (for interrupt-and-send)
 const activeQueries = new Map<string, Promise<void>>();
 // Track pending permission requests — the promise resolve is called when client responds
-const pendingPermissions = new Map<
-  string,
-  { resolve: (result: any) => void; sessionId: string }
->();
+const pendingPermissions = new Map<string, PendingRequest>();
 
 let sdkQuery: typeof import("@anthropic-ai/claude-agent-sdk").query | null = null;
 
@@ -124,7 +145,11 @@ function translateContentBlock(block: any): WsEvent | null {
   return null;
 }
 
-function translateEvent(event: any): WsEvent[] {
+/**
+ * @param previousSessionCost the session-wide cost reported by the previous run,
+ *   used to turn a result's session total into this run's own cost.
+ */
+function translateEvent(event: any, previousSessionCost: number): WsEvent[] {
   if (!event) return [];
 
   switch (event.type) {
@@ -142,6 +167,7 @@ function translateEvent(event: any): WsEvent[] {
     case "user": {
       // SDK sends tool results as user messages with content blocks
       const contentBlocks = event.message?.content || event.content || [];
+      if (!Array.isArray(contentBlocks)) return [];
       const results: WsEvent[] = [];
       for (const block of contentBlocks) {
         const wsEvent = translateContentBlock(block);
@@ -153,17 +179,26 @@ function translateEvent(event: any): WsEvent[] {
     case "system":
       return [];
 
-    case "result":
+    case "result": {
+      // total_cost_usd is session-wide: since Claude Code 2.1.277 a resumed
+      // session carries its earlier spend. Each browser message is one resumed
+      // run and the browser adds the results up, so send this run's share
+      // (totalCost) and keep the session total (sessionCost) for the next run.
+      // A total lower than before means Claude Code started counting afresh.
+      const sessionCost = typeof event.total_cost_usd === "number" ? event.total_cost_usd : 0;
+      const runCost =
+        sessionCost >= previousSessionCost ? sessionCost - previousSessionCost : sessionCost;
       return [
         {
           type: "result",
-          cost: event.cost_usd || 0,
           duration: event.duration_ms || 0,
-          totalCost: event.total_cost_usd || 0,
+          totalCost: runCost,
+          sessionCost,
           numTurns: event.num_turns || 0,
           usage: event.usage || null,
         },
       ];
+    }
 
     default: {
       // Handle bare content blocks (text, thinking, tool_use, tool_result)
@@ -178,10 +213,84 @@ interface ImageInput {
   mimeType: string;
 }
 
+/** Image types the API accepts in a message (the browser only offers these). */
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+type ImageMediaType = (typeof IMAGE_TYPES)[number];
+
+function isImageMediaType(value: string): value is ImageMediaType {
+  return (IMAGE_TYPES as readonly string[]).includes(value);
+}
+
+/** Session-wide cost reported by the session's last run, or 0 if none reported one. */
+function lastSessionCost(events: WsEvent[]): number {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === "result" && typeof e.sessionCost === "number") return e.sessionCost;
+  }
+  return 0;
+}
+
+/**
+ * Send a question to the browser and wait for the answer. Resolves with a deny
+ * when the run is aborted; removeClient() denies it when the last browser
+ * watching the session disconnects.
+ */
+function askBrowser(
+  sessionId: string,
+  event: WsEvent,
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+  onApprove?: PermissionUpdate[]
+): Promise<PermissionResult> {
+  const requestId = uuidv4();
+  const sent: WsEvent = { ...event, requestId };
+  log.info(`Waiting for the browser: ${event.type}`, {
+    sessionId,
+    requestId,
+    ...(typeof event.toolName === "string" ? { toolName: event.toolName } : {}),
+  });
+
+  return new Promise<PermissionResult>((resolve) => {
+    if (signal.aborted) {
+      resolve({ behavior: "deny", message: "Aborted" });
+      return;
+    }
+    pendingPermissions.set(requestId, { sessionId, event: sent, input, onApprove, resolve });
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (pendingPermissions.delete(requestId)) {
+          resolve({ behavior: "deny", message: "Aborted" });
+        }
+      },
+      { once: true }
+    );
+    broadcast(sessionId, sent);
+  });
+}
+
+/**
+ * Claude Code reads AskUserQuestion answers keyed by question text, with a
+ * multi-select answer as labels joined by ", ". The browser sends answers keyed
+ * by question index; keys that are already question text are accepted too.
+ */
+function answersByQuestion(questions: unknown, answers: unknown): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!Array.isArray(questions) || !answers || typeof answers !== "object") return result;
+  const given = answers as Record<string, unknown>;
+  questions.forEach((q, i) => {
+    const text = (q as { question?: unknown } | null)?.question;
+    if (typeof text !== "string" || !text) return;
+    const value = given[String(i)] ?? given[text];
+    if (typeof value === "string" && value) result[text] = value;
+  });
+  return result;
+}
+
 async function runQuery(
   sessionId: string,
   userMessage: string,
-  settings: { permissionMode?: string; model?: string },
+  settings: { permissionMode?: unknown; model?: unknown },
   images?: ImageInput[]
 ) {
   const session = sessionManager.get(sessionId);
@@ -202,7 +311,7 @@ async function runQuery(
     broadcast(sessionId, {
       type: "error",
       message:
-        "Claude Agent SDK not available. Make sure @anthropic-ai/claude-agent-sdk is installed and claude is logged in.",
+        "Claude Agent SDK not available. Make sure @anthropic-ai/claude-agent-sdk is installed and you are signed in to Claude Code.",
     });
     return;
   }
@@ -219,13 +328,28 @@ async function runQuery(
     }
   }
 
-  const hasImages = images && images.length > 0;
+  // The mode picked in the sidebar; the saved preference (Default unless changed)
+  // when a message arrives without one. Always passed explicitly: since SDK 0.3.286
+  // an omitted permissionMode lets Claude Code pick the mode, which can be auto mode.
+  const permissionMode: WebPermissionMode = isPermissionMode(settings.permissionMode)
+    ? settings.permissionMode
+    : preferencesManager.getPermissionMode();
+  // A model alias ("sonnet", "opus", "haiku") or a model ID; never anything flag-like.
+  const model =
+    typeof settings.model === "string" && /^[A-Za-z0-9][\w.:@[\]-]*$/.test(settings.model)
+      ? settings.model
+      : undefined;
+
+  const usableImages = (images ?? []).filter(
+    (img) => typeof img?.data === "string" && isImageMediaType(img.mimeType)
+  );
+  const hasImages = usableImages.length > 0;
   log.info(`User message: "${userMessage.length > 120 ? userMessage.slice(0, 120) + "..." : userMessage}"`, {
     ...ctx,
-    model: settings.model,
-    permissionMode: settings.permissionMode,
+    model,
+    permissionMode,
     resuming: !!session.sdkSessionId,
-    ...(hasImages ? { imageCount: images.length } : {}),
+    ...(hasImages ? { imageCount: usableImages.length } : {}),
   });
 
   const abortController = new AbortController();
@@ -238,107 +362,62 @@ async function runQuery(
     type: "user_message",
     text: userMessage,
     timestamp: Date.now(),
-    ...(hasImages ? { images: images.map((img) => ({ data: img.data, mimeType: img.mimeType })) } : {}),
+    ...(hasImages ? { images: usableImages.map((img) => ({ data: img.data, mimeType: img.mimeType })) } : {}),
   };
   sessionManager.appendEvent(sessionId, userEvent);
   broadcast(sessionId, userEvent);
 
-  const options: any = {
+  // Everything that needs a person goes to the browser: tool approvals,
+  // AskUserQuestion and plan approval. In Bypass mode Claude Code calls this
+  // only for what no mode approves on its own, such as AskUserQuestion, a tool
+  // a settings file marks "ask", or rm/rmdir on a critical path.
+  const canUseTool: CanUseTool = async (toolName, input, { signal }) => {
+    if (toolName === "AskUserQuestion") {
+      return askBrowser(sessionId, { type: "ask_user_question", questions: input.questions }, input, signal);
+    }
+
+    if (toolName === "ExitPlanMode") {
+      // Approving switches the rest of this run to acceptEdits, as Claude Code's
+      // own "Yes, and auto-accept edits" does. Without it Claude Code leaves plan
+      // mode for the mode it had before planning, or Default if there was none.
+      // A Bypass run keeps Bypass.
+      const autoAcceptEdits: PermissionUpdate[] | undefined =
+        permissionMode === "bypassPermissions"
+          ? undefined
+          : [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
+      return askBrowser(
+        sessionId,
+        { type: "plan_approval", plan: typeof input.plan === "string" ? input.plan : "" },
+        input,
+        signal,
+        autoAcceptEdits
+      );
+    }
+
+    return askBrowser(sessionId, { type: "permission_request", toolName, input }, input, signal);
+  };
+
+  const options: Options = {
     cwd: session.directory,
     abortController,
     maxTurns: 50,
+    // Run like Claude Code in a terminal: load ~/.claude/settings.json, the
+    // project's .claude/settings.json and .claude/settings.local.json, and
+    // CLAUDE.md files, and use Claude Code's system prompt. Without
+    // systemPrompt the SDK sends a minimal prompt; settingSources is explicit
+    // because its default changed (0.2.x loaded nothing, 0.3.x loads all).
+    settingSources: ["user", "project", "local"],
+    systemPrompt: { type: "preset", preset: "claude_code" },
+    permissionMode,
+    canUseTool,
   };
-
-  const permMode = settings.permissionMode || "bypassPermissions";
-  options.permissionMode = permMode;
-
-  // Always register canUseTool so we can intercept AskUserQuestion (even in bypass mode).
-  // When canUseTool is set, SDK adds --permission-prompt-tool stdio, routing all tool
-  // permission checks through our callback.
-  options.canUseTool = async (
-    toolName: string,
-    input: Record<string, unknown>,
-    callOpts: { signal: AbortSignal }
-  ) => {
-    // Always intercept AskUserQuestion — show interactive prompt in web UI
-    if (toolName === "AskUserQuestion") {
-      const requestId = uuidv4();
-      log.info("AskUserQuestion intercepted", { ...ctx, requestId });
-
-      broadcast(sessionId, {
-        type: "ask_user_question",
-        requestId,
-        questions: input.questions,
-      });
-
-      return new Promise<any>((resolve) => {
-        pendingPermissions.set(requestId, { resolve, sessionId });
-
-        const onAbort = () => {
-          if (pendingPermissions.delete(requestId)) {
-            resolve({ behavior: "deny", message: "Aborted" });
-          }
-        };
-        callOpts.signal.addEventListener("abort", onAbort, { once: true });
-      });
-    }
-
-    // Always intercept ExitPlanMode — show plan approval UI
-    if (toolName === "ExitPlanMode") {
-      const requestId = uuidv4();
-      log.info("ExitPlanMode intercepted", { ...ctx, requestId });
-
-      broadcast(sessionId, {
-        type: "plan_approval",
-        requestId,
-        plan: input.plan || "",
-        allowedPrompts: input.allowedPrompts || [],
-      });
-
-      return new Promise<any>((resolve) => {
-        pendingPermissions.set(requestId, { resolve, sessionId });
-
-        const onAbort = () => {
-          if (pendingPermissions.delete(requestId)) {
-            resolve({ behavior: "deny", message: "Aborted" });
-          }
-        };
-        callOpts.signal.addEventListener("abort", onAbort, { once: true });
-      });
-    }
-
-    // In bypass mode, auto-allow all other tools
-    if (permMode === "bypassPermissions") {
-      return { behavior: "allow", updatedInput: {} };
-    }
-
-    // Non-bypass modes: forward permission requests to the web client
-    const requestId = uuidv4();
-    log.info("Permission requested", { ...ctx, toolName, requestId });
-
-    broadcast(sessionId, {
-      type: "permission_request",
-      requestId,
-      toolName,
-      input,
-    });
-
-    return new Promise<any>((resolve) => {
-      pendingPermissions.set(requestId, { resolve, sessionId });
-
-      const onAbort = () => {
-        if (pendingPermissions.delete(requestId)) {
-          resolve({ behavior: "deny", message: "Aborted" });
-        }
-      };
-      callOpts.signal.addEventListener("abort", onAbort, { once: true });
-    });
-  };
-
-  if (settings.model) {
-    options.model = settings.model;
+  if (permissionMode === "bypassPermissions") {
+    // The SDK requires this explicit opt-in for bypassPermissions.
+    options.allowDangerouslySkipPermissions = true;
   }
-
+  if (model) {
+    options.model = model;
+  }
   if (session.sdkSessionId) {
     options.resume = session.sdkSessionId;
   }
@@ -346,35 +425,30 @@ async function runQuery(
   const queryStartTime = Date.now();
 
   // Build prompt: string for text-only, async iterable for messages with images
-  let prompt: any = userMessage;
+  let prompt: string | AsyncIterable<SDKUserMessage> = userMessage;
   if (hasImages) {
-    const contentBlocks: any[] = [];
-    for (const img of images) {
-      contentBlocks.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: img.mimeType,
-          data: img.data,
-        },
-      });
-    }
+    const content: Exclude<SDKUserMessage["message"]["content"], string> = usableImages.map((img) => ({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: img.mimeType as ImageMediaType,
+        data: img.data,
+      },
+    }));
     if (userMessage) {
-      contentBlocks.push({ type: "text", text: userMessage });
+      content.push({ type: "text", text: userMessage });
     }
-    async function* generateMessages() {
-      yield {
-        type: "user" as const,
-        session_id: session!.sdkSessionId || "",
-        message: {
-          role: "user" as const,
-          content: contentBlocks,
-        },
-        parent_tool_use_id: null,
-      };
-    }
-    prompt = generateMessages();
+    const message: SDKUserMessage = {
+      type: "user",
+      message: { role: "user", content },
+      parent_tool_use_id: null,
+    };
+    prompt = (async function* () {
+      yield message;
+    })();
   }
+
+  let previousSessionCost = lastSessionCost(session.messageBuffer);
 
   const queryPromise = (async () => {
     try {
@@ -383,21 +457,19 @@ async function runQuery(
         options,
       })) {
         // Capture SDK session ID from init event
-        if (
-          event.type === "system" &&
-          (event as any).subtype === "init" &&
-          (event as any).session_id
-        ) {
-          const newSdkId = (event as any).session_id;
+        if (event.type === "system" && event.subtype === "init" && event.session_id) {
+          const newSdkId = event.session_id;
           sessionManager.updateSdkSessionId(sessionId, newSdkId);
           log.info("SDK session initialized", {
             sessionId,
             sdkSessionId: newSdkId,
             directory: session.directory,
+            model: event.model,
+            permissionMode: event.permissionMode,
           });
         }
 
-        const wsEvents = translateEvent(event);
+        const wsEvents = translateEvent(event, previousSessionCost);
         for (const wsEvent of wsEvents) {
           // Log tool usage
           if (wsEvent.type === "tool_use_start") {
@@ -420,6 +492,9 @@ async function runQuery(
                 toolUseId: wsEvent.toolUseId as string,
               });
             }
+          }
+          if (wsEvent.type === "result" && typeof wsEvent.sessionCost === "number") {
+            previousSessionCost = wsEvent.sessionCost;
           }
 
           sessionManager.appendEvent(sessionId, wsEvent);
@@ -594,6 +669,12 @@ export function handleWsConnection(ws: WebSocket) {
             watching: isWatching(msg.sessionId),
           })
         );
+        // Questions still waiting for an answer, e.g. raised while no browser was open
+        for (const pending of pendingPermissions.values()) {
+          if (pending.sessionId === msg.sessionId) {
+            ws.send(JSON.stringify(pending.event));
+          }
+        }
         break;
       }
 
@@ -649,9 +730,10 @@ export function handleWsConnection(ws: WebSocket) {
             requestId: msg.requestId,
             sessionId: pending.sessionId,
           });
+          // Run the tool with the input Claude Code asked about, unchanged
           pending.resolve({
             behavior: "allow",
-            updatedInput: msg.updatedInput || {},
+            updatedInput: pending.input,
           });
         } else {
           log.info("Permission denied", {
@@ -660,7 +742,7 @@ export function handleWsConnection(ws: WebSocket) {
           });
           pending.resolve({
             behavior: "deny",
-            message: msg.message || "Denied by user",
+            message: typeof msg.message === "string" && msg.message ? msg.message : "Denied by user",
           });
         }
         break;
@@ -679,10 +761,14 @@ export function handleWsConnection(ws: WebSocket) {
           requestId: msg.requestId,
           sessionId: pending.sessionId,
         });
-        // Return the user's answers in updatedInput so the CLI gets them
+        // Claude Code takes the answers in updatedInput: the original questions
+        // plus an answers map keyed by question text
         pending.resolve({
           behavior: "allow",
-          updatedInput: { ...msg.answers },
+          updatedInput: {
+            ...pending.input,
+            answers: answersByQuestion(pending.input.questions, msg.answers),
+          },
         });
         break;
       }
@@ -703,7 +789,8 @@ export function handleWsConnection(ws: WebSocket) {
           });
           pending.resolve({
             behavior: "allow",
-            updatedInput: {},
+            updatedInput: pending.input,
+            ...(pending.onApprove ? { updatedPermissions: pending.onApprove } : {}),
           });
         } else {
           log.info("Plan rejected", {
@@ -713,7 +800,8 @@ export function handleWsConnection(ws: WebSocket) {
           });
           pending.resolve({
             behavior: "deny",
-            message: msg.message || "User wants to keep planning",
+            message:
+              typeof msg.message === "string" && msg.message ? msg.message : "User wants to keep planning",
           });
         }
         break;

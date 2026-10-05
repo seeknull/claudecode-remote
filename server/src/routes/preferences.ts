@@ -1,5 +1,9 @@
 import { Router, Request, Response } from "express";
-import { preferencesManager } from "../preferences-manager.js";
+import {
+  preferencesManager,
+  isPermissionMode,
+  PERMISSION_MODES,
+} from "../preferences-manager.js";
 
 export function createPreferencesRouter(): Router {
   const router = Router();
@@ -46,6 +50,16 @@ export function createPreferencesRouter(): Router {
     }
     preferencesManager.setLastSeen(req.params.sessionId, count);
     res.json({ ok: true });
+  });
+
+  router.put("/permission-mode", (req: Request, res: Response) => {
+    const { mode } = req.body ?? {};
+    if (!isPermissionMode(mode)) {
+      res.status(400).json({ error: `mode must be one of: ${PERMISSION_MODES.join(", ")}` });
+      return;
+    }
+    preferencesManager.setPermissionMode(mode);
+    res.json({ permissionMode: mode });
   });
 
   return router;

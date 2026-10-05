@@ -1,5 +1,3 @@
-import { execSync } from "child_process";
-import { createRequire } from "module";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -14,27 +12,32 @@ import { createSessionsRouter } from "./routes/sessions.js";
 import { createGitRouter } from "./routes/git.js";
 import { createPreferencesRouter } from "./routes/preferences.js";
 import { handleWsConnection, initSdk, abortAllQueries } from "./ws/handler.js";
+import { findBundledClaudeBinary, claudeVersion } from "./claude-binary.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("server");
 
-// ── Preflight: verify Claude CLI is available ────────────────────
-// The SDK spawns its own bundled cli.js, so check that it resolves.
+// ── Preflight: verify the SDK's Claude Code binary runs ──────────
+// The Agent SDK runs its own Claude Code binary (a per-platform optional
+// dependency), not the `claude` on your PATH.
 try {
-  const require = createRequire(import.meta.url);
-  const sdkCliPath = join(dirname(require.resolve("@anthropic-ai/claude-agent-sdk")), "cli.js");
-  const cliVersion = execSync(`node "${sdkCliPath}" --version`, { stdio: "pipe" }).toString().trim();
-  log.info(`Claude Agent SDK CLI: ${cliVersion}`);
-} catch {
+  const binary = findBundledClaudeBinary();
+  log.info(`Claude Code (bundled with the Agent SDK): ${claudeVersion(binary)}`);
+} catch (err) {
+  const w = 56;
+  const row = (s: string) => "│  " + s.padEnd(w - 4) + "│";
   log.error(
     [
       "",
-      "┌──────────────────────────────────────────────────────┐",
-      "│  @anthropic-ai/claude-agent-sdk is not installed.    │",
-      "│                                                      │",
-      "│  Install it:                                         │",
-      "│  $ npm install                                       │",
-      "└──────────────────────────────────────────────────────┘",
+      "┌" + "─".repeat(w - 2) + "┐",
+      row("Claude Code could not be started."),
+      row(""),
+      row("The Agent SDK installs it as an optional"),
+      row("dependency. Reinstall without --omit=optional:"),
+      row("$ npm install"),
+      "└" + "─".repeat(w - 2) + "┘",
+      "",
+      `Reason: ${(err as Error).message}`,
       "",
     ].join("\n")
   );

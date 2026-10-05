@@ -7,26 +7,26 @@ interface Props {
 
 const PERMISSION_MODES = [
   {
-    value: "bypassPermissions",
-    label: "Bypass Permissions",
-    description: "Execute all tools without asking",
-  },
-  {
     value: "default",
     label: "Default",
-    description: "Ask for approval on sensitive actions",
+    description: "Asks here before tools that need approval",
   },
   {
     value: "plan",
-    label: "Plan Mode",
-    description: "Analyze and plan without executing",
+    label: "Plan",
+    description: "Plans first. You approve the plan before edits",
+  },
+  {
+    value: "bypassPermissions",
+    label: "Bypass",
+    description: "Runs tools without asking",
   },
 ];
 
 const MODELS = [
-  { value: "sonnet", label: "Claude Sonnet (Fast)" },
-  { value: "opus", label: "Claude Opus (Powerful)" },
-  { value: "haiku", label: "Claude Haiku (Quick)" },
+  { value: "sonnet", label: "Sonnet" },
+  { value: "opus", label: "Opus" },
+  { value: "haiku", label: "Haiku" },
 ];
 
 export default function SettingsPanel({

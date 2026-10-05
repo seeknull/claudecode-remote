@@ -29,9 +29,9 @@ interface Props {
 }
 
 const PERMISSION_MODES = [
-  { value: "bypassPermissions", label: "Bypass" },
-  { value: "default", label: "Default" },
-  { value: "plan", label: "Plan" },
+  { value: "default", label: "Default", hint: "Asks here before tools that need approval." },
+  { value: "plan", label: "Plan", hint: "Plans first. You approve the plan before edits." },
+  { value: "bypassPermissions", label: "Bypass", hint: "Runs tools without asking." },
 ];
 
 const MODELS = [
@@ -248,6 +248,9 @@ function SidebarContent({
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+          <p className="text-[10px] text-gray-500 mt-1">
+            {PERMISSION_MODES.find((m) => m.value === settings.permissionMode)?.hint}
+          </p>
         </div>
 
         <p className="text-[10px] text-gray-600 mt-2">

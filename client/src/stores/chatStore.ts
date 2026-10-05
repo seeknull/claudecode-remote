@@ -22,8 +22,8 @@ export type ChatMessage =
   | { id: string; role: "thinking"; text: string }
   | { id: string; role: "error"; text: string };
 
+// The permission mode lives in preferencesStore: it is saved on the server.
 interface ChatSettings {
-  permissionMode: string;
   model: string;
 }
 
@@ -64,7 +64,6 @@ export interface UserQuestion {
 export interface PlanApproval {
   requestId: string;
   plan: string;
-  allowedPrompts?: any[];
 }
 
 interface ChatState {
@@ -109,7 +108,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   wsConnected: false,
   isWatching: false,
   settings: {
-    permissionMode: "bypassPermissions",
     model: "sonnet",
   },
   sessionStats: { ...emptyStats },
@@ -391,7 +389,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           planApproval: {
             requestId: event.requestId,
             plan: event.plan,
-            allowedPrompts: event.allowedPrompts,
           },
         });
         break;

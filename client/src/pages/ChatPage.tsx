@@ -43,6 +43,18 @@ export default function ChatPage() {
     timeoutStuckTools,
   } = useChatStore();
 
+  const permissionMode = usePreferencesStore((s) => s.permissionMode);
+  const setPermissionMode = usePreferencesStore((s) => s.setPermissionMode);
+  const preferencesLoaded = usePreferencesStore((s) => s.loaded);
+  const fetchPreferences = usePreferencesStore((s) => s.fetchPreferences);
+
+  // Model from this page, permission mode from the saved preferences
+  const chatSettings = { model: settings.model, permissionMode };
+  const handleSettingsChange = (change: Partial<{ permissionMode: string; model: string }>) => {
+    if (change.model !== undefined) setSettings({ model: change.model });
+    if (change.permissionMode !== undefined) setPermissionMode(change.permissionMode);
+  };
+
   const wsRef = useRef<WsClient | null>(null);
   const sessionSourceRef = useRef<string | null>(null);
   const [sessionMeta, setSessionMeta] = useState<SessionMeta | null>(null);
@@ -60,6 +72,12 @@ export default function ChatPage() {
     if (!sessionId) return;
     setSessionMeta(null);
   }, [sessionId]);
+
+  // Opened directly (e.g. after a reload): load the saved permission mode.
+  // Until it arrives, messages use Default.
+  useEffect(() => {
+    if (!preferencesLoaded) fetchPreferences();
+  }, [preferencesLoaded, fetchPreferences]);
 
   // WebSocket lifecycle
   useEffect(() => {
@@ -161,7 +179,7 @@ export default function ChatPage() {
         data: img.data,
         mimeType: img.mimeType,
       })),
-      settings,
+      settings: chatSettings,
     });
   };
 
@@ -248,8 +266,8 @@ export default function ChatPage() {
     sessionLabel: sessionMeta?.label || "Chat Session",
     directory,
     stats: sessionStats,
-    settings,
-    onSettingsChange: setSettings,
+    settings: chatSettings,
+    onSettingsChange: handleSettingsChange,
     wsConnected,
     isStreaming,
     gitInfo,

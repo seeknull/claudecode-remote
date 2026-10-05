@@ -63,7 +63,7 @@ export default function PlanApprovalPrompt({ planApproval, onRespond }: Props) {
               onClick={handleApprove}
               className="flex-1 px-3 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors min-h-[44px]"
             >
-              Yes, and auto-accept
+              Yes, auto-accept edits
             </button>
             <button
               onClick={() => handleReject()}

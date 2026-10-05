@@ -1,12 +1,21 @@
 import { create } from "zustand";
 import { api } from "../api/http";
 
+/** Permission modes the chat offers, as the Agent SDK names them. */
+export const PERMISSION_MODES = ["default", "plan", "bypassPermissions"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return typeof value === "string" && (PERMISSION_MODES as readonly string[]).includes(value);
+}
+
 interface ServerPreferences {
   starredSessions: string[];
   hiddenSessions: string[];
   starredProjects: string[];
   hiddenProjects: string[];
   lastSeenMessageCount: Record<string, number>;
+  permissionMode?: string;
 }
 
 interface PreferencesState {
@@ -16,8 +25,11 @@ interface PreferencesState {
   hiddenSessions: string[];
   starredSessions: string[];
   lastSeenMessageCount: Record<string, number>;
+  /** Saved on the server, so it survives reloads and applies to new sessions. */
+  permissionMode: PermissionMode;
 
   fetchPreferences: () => Promise<void>;
+  setPermissionMode: (mode: string) => void;
 
   toggleHideProject: (path: string) => void;
   toggleStarProject: (path: string) => void;
@@ -39,6 +51,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   hiddenSessions: [],
   starredSessions: [],
   lastSeenMessageCount: {},
+  permissionMode: "default",
 
   fetchPreferences: async () => {
     try {
@@ -50,10 +63,20 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         starredProjects: prefs.starredProjects,
         hiddenProjects: prefs.hiddenProjects,
         lastSeenMessageCount: prefs.lastSeenMessageCount,
+        permissionMode: isPermissionMode(prefs.permissionMode) ? prefs.permissionMode : "default",
       });
     } catch {
       set({ loaded: true });
     }
+  },
+
+  setPermissionMode: (mode) => {
+    if (!isPermissionMode(mode)) return;
+    set({ permissionMode: mode });
+    api("/preferences/permission-mode", {
+      method: "PUT",
+      body: JSON.stringify({ mode }),
+    }).catch(() => {});
   },
 
   toggleHideProject: (path) => {

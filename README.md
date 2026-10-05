@@ -80,7 +80,7 @@ ngrok http --domain=your-domain.ngrok-free.app 3001
 
 ## How it works
 
-The server wraps the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) (`@anthropic-ai/claude-agent-sdk`), which brings its own Claude Code binary. Each chat message runs that Claude Code on your machine, in the project's directory, and resumes the session. Web sessions load the user, project and local settings (`~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`) and CLAUDE.md files, and use Claude Code's own system prompt. The model picker sends Claude Code's aliases (`sonnet`, `opus`, `haiku`), so each runs the current model of that family. Sessions persist across page refreshes and reconnections.
+The server wraps the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) (`@anthropic-ai/claude-agent-sdk`), which brings its own Claude Code binary. Each chat message runs that Claude Code on your machine, in the project's directory. The first message in a web session starts a Claude Code session, and later messages resume it. Web sessions load the user, project and local settings (`~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`) and CLAUDE.md files, and use Claude Code's own system prompt. The model picker sends Claude Code's aliases (`sonnet`, `opus`, `haiku`), so each runs the current model of that family. Sessions persist across page refreshes and reconnections.
 
 Your projects are discovered automatically from `~/.claude/projects/` — any directory where you've previously used Claude Code will appear.
 

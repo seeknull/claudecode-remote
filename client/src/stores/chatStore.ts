@@ -74,6 +74,8 @@ interface ChatState {
   settings: ChatSettings;
   sessionStats: SessionStats;
   permissionRequest: PermissionRequest | null;
+  /** Requests waiting behind the one shown: tools that run in parallel can ask at once. */
+  permissionQueue: PermissionRequest[];
   userQuestion: UserQuestion | null;
   planApproval: PlanApproval | null;
   setWsConnected: (connected: boolean) => void;
@@ -102,6 +104,14 @@ const emptyStats: SessionStats = {
   queryCount: 0,
 };
 
+/** No prompt shown or waiting. */
+const noPrompts = {
+  permissionRequest: null,
+  permissionQueue: [],
+  userQuestion: null,
+  planApproval: null,
+};
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
@@ -111,12 +121,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     model: "sonnet",
   },
   sessionStats: { ...emptyStats },
-  permissionRequest: null,
-  userQuestion: null,
-  planApproval: null,
+  ...noPrompts,
 
   setWsConnected: (connected) => set({ wsConnected: connected }),
-  clearPermissionRequest: () => set({ permissionRequest: null }),
+  // Answered: show the next waiting request, if any
+  clearPermissionRequest: () =>
+    set((state) => ({
+      permissionRequest: state.permissionQueue[0] ?? null,
+      permissionQueue: state.permissionQueue.slice(1),
+    })),
   clearUserQuestion: () => set({ userQuestion: null }),
   clearPlanApproval: () => set({ planApproval: null }),
 
@@ -131,9 +144,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       sessionStats: { ...emptyStats },
       isWatching: false,
-      permissionRequest: null,
-      userQuestion: null,
-      planApproval: null,
+      ...noPrompts,
     });
   },
 
@@ -245,7 +256,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             messages[i] = { ...m, status: "done", output: m.output || "" };
           }
         }
-        set({ messages, sessionStats: stats });
+        // History is sent on (re)joining a session. The server sends the requests
+        // still waiting for an answer right after it, so drop any shown before.
+        set({ messages, sessionStats: stats, ...noPrompts });
         break;
       }
 
@@ -359,18 +372,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       case "status": {
-        set({ isStreaming: event.isProcessing });
+        // When a run ends, nothing from it can still be waiting for an answer
+        set(event.isProcessing ? { isStreaming: true } : { isStreaming: false, ...noPrompts });
         break;
       }
 
       case "permission_request": {
-        set({
-          permissionRequest: {
-            requestId: event.requestId,
-            toolName: event.toolName,
-            input: event.input,
-          },
-        });
+        const request: PermissionRequest = {
+          requestId: event.requestId,
+          toolName: event.toolName,
+          input: event.input,
+        };
+        const shown = state.permissionRequest;
+        if (!shown) {
+          set({ permissionRequest: request });
+        } else if (
+          shown.requestId !== request.requestId &&
+          !state.permissionQueue.some((r) => r.requestId === request.requestId)
+        ) {
+          // Tools that run in parallel can each ask at once: show them one after another
+          set({ permissionQueue: [...state.permissionQueue, request] });
+        }
         break;
       }
 
